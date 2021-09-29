@@ -1,4 +1,4 @@
-module github.com/liuxp0827/xorm_opentelemetry_hook
+module github.com/liuxp0827/xorm-opentelemetry-hook
 
 go 1.17
 
