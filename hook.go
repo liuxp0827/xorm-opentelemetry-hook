@@ -1,4 +1,4 @@
-package xorm_opentelemetry_hook
+package hook
 
 import (
 	"context"
@@ -14,9 +14,8 @@ import (
 )
 
 type OpenTelemetryHook struct {
-	tracer         trace.Tracer
-	tracerProvider trace.TracerProvider
-	propagator     propagation.TextMapPropagator
+	tracer     trace.Tracer
+	propagator propagation.TextMapPropagator
 }
 
 func NewOpenTelemetryHook(tp trace.TracerProvider) *OpenTelemetryHook {
@@ -24,9 +23,8 @@ func NewOpenTelemetryHook(tp trace.TracerProvider) *OpenTelemetryHook {
 	otel.SetTracerProvider(tp)
 	tracer := otel.Tracer("db")
 	return &OpenTelemetryHook{
-		tracer:         tracer,
-		tracerProvider: tp,
-		propagator:     propagator,
+		tracer:     tracer,
+		propagator: propagator,
 	}
 }
 
@@ -47,38 +45,24 @@ func (h *OpenTelemetryHook) start(c *contexts.ContextHook) (context.Context, tra
 }
 
 func (h *OpenTelemetryHook) BeforeProcess(c *contexts.ContextHook) (context.Context, error) {
-	var (
-		peer  = "peer"
-		attrs = []attribute.KeyValue{}
-	)
-	if p, ok := c.Ctx.Value("peer").(string); ok {
-		peer = p
-	}
-
-	ctx, span := h.start(c)
-
-	attrs = append(attrs, attribute.Key("peer").String(peer))
-	attrs = append(attrs, attribute.Key("args").String(fmt.Sprintf("%v", c.Args)))
-	attrs = append(attrs, attribute.Key("sql").String(fmt.Sprintf("%v %v", c.SQL, c.Args)))
-	attrs = append(attrs, attribute.Key("go.orm").String("xorm"))
-
-	span.SetAttributes(attrs...)
-
-	nCtx := context.WithValue(ctx, fmt.Sprintf("%v %v", c.SQL, c.Args), span)
-	return nCtx, nil
+	return trace.ContextWithSpan(h.start(c)), nil
 }
 
 func (h *OpenTelemetryHook) AfterProcess(c *contexts.ContextHook) error {
 	var (
+		span  = trace.SpanFromContext(c.Ctx)
 		tn    = time.Now()
-		attrs = []attribute.KeyValue{}
+		attrs = make([]attribute.KeyValue, 0)
 	)
-	span := c.Ctx.Value(fmt.Sprintf("%v %v", c.SQL, c.Args)).(trace.Span)
+
 	if c.ExecuteTime > 0 {
 		attrs = append(attrs, attribute.Key("execute_time_ms").String(c.ExecuteTime.String()))
 	}
-	if c.Err != nil {
+	attrs = append(attrs, attribute.Key("args").String(fmt.Sprintf("%v", c.Args)))
+	attrs = append(attrs, attribute.Key("sql").String(fmt.Sprintf("%v %v", c.SQL, c.Args)))
+	attrs = append(attrs, attribute.Key("go.orm").String("xorm"))
 
+	if c.Err != nil {
 		span.RecordError(c.Err, trace.WithTimestamp(tn))
 	}
 	span.SetAttributes(attrs...)

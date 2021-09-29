@@ -1,4 +1,4 @@
-package xorm_opentelemetry_hook
+package hook
 
 import (
 	"context"
