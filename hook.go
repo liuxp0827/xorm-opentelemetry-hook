@@ -13,31 +13,62 @@ import (
 	"xorm.io/xorm/contexts"
 )
 
-type OpenTelemetryHook struct {
-	tracer     trace.Tracer
-	propagator propagation.TextMapPropagator
+// Option is tracing option.
+type Option func(*options)
+
+type options struct {
+	tracerProvider trace.TracerProvider
+	propagator     propagation.TextMapPropagator
 }
 
-func NewOpenTelemetryHook(tp trace.TracerProvider) *OpenTelemetryHook {
-	propagator := propagation.NewCompositeTextMapPropagator(Metadata{}, propagation.Baggage{}, propagation.TraceContext{})
-	otel.SetTracerProvider(tp)
-	tracer := otel.Tracer("db")
-	return &OpenTelemetryHook{
-		tracer:     tracer,
-		propagator: propagator,
+// WithPropagator with tracer propagator.
+func WithPropagator(propagator propagation.TextMapPropagator) Option {
+	return func(opts *options) {
+		opts.propagator = propagator
 	}
 }
 
-func WrapEngine(e *xorm.Engine, tp trace.TracerProvider) {
-	e.AddHook(NewOpenTelemetryHook(tp))
+// WithTracerProvider with tracer provider.
+// Deprecated: use otel.SetTracerProvider(provider) instead.
+func WithTracerProvider(provider trace.TracerProvider) Option {
+	return func(opts *options) {
+		opts.tracerProvider = provider
+	}
 }
 
-func WrapEngineGroup(eg *xorm.EngineGroup, tp trace.TracerProvider) {
-	eg.AddHook(NewOpenTelemetryHook(tp))
+type OpenTelemetryHook struct {
+	tracer trace.Tracer
+	opt    *options
+}
+
+func NewOpenTelemetryHook(opts ...Option) *OpenTelemetryHook {
+	opt := options{
+		propagator: propagation.NewCompositeTextMapPropagator(Metadata{}, propagation.Baggage{}, propagation.TraceContext{}),
+	}
+	for _, o := range opts {
+		o(&opt)
+	}
+	if opt.tracerProvider != nil {
+		otel.SetTracerProvider(opt.tracerProvider)
+	}
+
+	tracer := otel.Tracer("db")
+	return &OpenTelemetryHook{
+		tracer: tracer,
+		opt:    &opt,
+	}
+}
+
+func WrapEngine(e *xorm.Engine, opts ...Option) {
+	e.AddHook(NewOpenTelemetryHook(opts...))
+}
+
+func WrapEngineGroup(eg *xorm.EngineGroup, opts ...Option) {
+	eg.AddHook(NewOpenTelemetryHook(opts...))
 }
 
 func (h *OpenTelemetryHook) start(c *contexts.ContextHook) (context.Context, trace.Span) {
-	operation := fmt.Sprintf("%v %v", c.SQL, c.Args)
+	operation := fmt.Sprintf("SQL: %v %v", c.SQL, c.Args)
 	return h.tracer.Start(c.Ctx,
 		operation,
 		trace.WithSpanKind(trace.SpanKindClient),
