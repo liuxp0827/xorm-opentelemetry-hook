@@ -3,6 +3,7 @@ package hook
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -68,7 +69,23 @@ func WrapEngineGroup(eg *xorm.EngineGroup, opts ...Option) {
 }
 
 func (h *OpenTelemetryHook) start(c *contexts.ContextHook) (context.Context, trace.Span) {
-	operation := fmt.Sprintf("SQL: %v %v", c.SQL, c.Args)
+	operation := "DB Query"
+	if strings.HasPrefix(c.SQL, "INSERT") {
+		operation = "DB Insert"
+	} else if strings.HasPrefix(c.SQL, "UPDATE") {
+		operation = "DB Update"
+	} else if strings.HasPrefix(c.SQL, "SELECT") {
+		operation = "DB Query"
+	} else if strings.HasPrefix(c.SQL, "DELETE") {
+		operation = "DB Delete"
+	} else if strings.HasPrefix(c.SQL, "BEGIN") {
+		operation = "DB Tx Begin"
+	} else if strings.HasPrefix(c.SQL, "COMMIT") {
+		operation = "DB Tx Commit"
+	} else if strings.HasPrefix(c.SQL, "ROLLBACK") {
+		operation = "DB Tx Rollback"
+	}
+
 	return h.tracer.Start(c.Ctx,
 		operation,
 		trace.WithSpanKind(trace.SpanKindClient),
